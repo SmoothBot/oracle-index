@@ -1,0 +1,555 @@
+{
+  "uid": "sync-progress",
+  "title": "Sync Progress",
+  "description": "Indexer sync state, data coverage, throughput, and liveness",
+  "tags": ["oracle", "indexer", "sync"],
+  "timezone": "browser",
+  "schemaVersion": 39,
+  "version": 1,
+  "refresh": "30s",
+  "time": {
+    "from": "now-1y",
+    "to": "now"
+  },
+  "templating": { "list": [] },
+  "panels": [
+    {
+      "type": "row",
+      "title": "Sync Status",
+      "gridPos": { "h": 1, "w": 24, "x": 0, "y": 0 },
+      "collapsed": false
+    },
+    {
+      "type": "stat",
+      "title": "Sync State",
+      "datasource": { "uid": "oracle-pg", "type": "postgres" },
+      "gridPos": { "h": 4, "w": 3, "x": 0, "y": 1 },
+      "targets": [
+        {
+          "rawSql": "SELECT CASE WHEN is_backfill_complete THEN 'Live' ELSE 'Backfilling' END AS \"Status\" FROM indexer_state WHERE id = 1;",
+          "format": "table",
+          "refId": "A"
+        }
+      ],
+      "fieldConfig": {
+        "defaults": {
+          "mappings": [
+            {
+              "type": "value",
+              "options": {
+                "Live": { "color": "green", "index": 0, "text": "Live" },
+                "Backfilling": { "color": "yellow", "index": 1, "text": "Backfilling" }
+              }
+            }
+          ],
+          "thresholds": {
+            "mode": "absolute",
+            "steps": [{ "color": "green", "value": null }]
+          }
+        },
+        "overrides": []
+      },
+      "options": {
+        "reduceOptions": { "calcs": ["lastNotNull"] },
+        "colorMode": "background",
+        "graphMode": "none",
+        "textMode": "value"
+      }
+    },
+    {
+      "type": "stat",
+      "title": "Last Indexed Block",
+      "datasource": { "uid": "oracle-pg", "type": "postgres" },
+      "gridPos": { "h": 4, "w": 3, "x": 3, "y": 1 },
+      "targets": [
+        {
+          "rawSql": "SELECT last_block AS \"Block\" FROM indexer_state WHERE id = 1;",
+          "format": "table",
+          "refId": "A"
+        }
+      ],
+      "fieldConfig": {
+        "defaults": {
+          "thresholds": {
+            "mode": "absolute",
+            "steps": [{ "color": "blue", "value": null }]
+          }
+        },
+        "overrides": []
+      },
+      "options": {
+        "reduceOptions": { "calcs": ["lastNotNull"] },
+        "colorMode": "background",
+        "graphMode": "none"
+      }
+    },
+    {
+      "type": "stat",
+      "title": "Current Block",
+      "datasource": { "uid": "oracle-pg", "type": "postgres" },
+      "gridPos": { "h": 4, "w": 3, "x": 6, "y": 1 },
+      "targets": [
+        {
+          "rawSql": "SELECT chain_tip AS \"Block\" FROM indexer_state WHERE id = 1;",
+          "format": "table",
+          "refId": "A"
+        }
+      ],
+      "fieldConfig": {
+        "defaults": {
+          "thresholds": {
+            "mode": "absolute",
+            "steps": [{ "color": "purple", "value": null }]
+          }
+        },
+        "overrides": []
+      },
+      "options": {
+        "reduceOptions": { "calcs": ["lastNotNull"] },
+        "colorMode": "background",
+        "graphMode": "none"
+      }
+    },
+    {
+      "type": "stat",
+      "title": "Blocks Behind",
+      "datasource": { "uid": "oracle-pg", "type": "postgres" },
+      "gridPos": { "h": 4, "w": 3, "x": 9, "y": 1 },
+      "targets": [
+        {
+          "rawSql": "SELECT COALESCE(chain_tip - last_block, 0) AS \"Blocks\" FROM indexer_state WHERE id = 1;",
+          "format": "table",
+          "refId": "A"
+        }
+      ],
+      "fieldConfig": {
+        "defaults": {
+          "thresholds": {
+            "mode": "absolute",
+            "steps": [
+              { "color": "green", "value": null },
+              { "color": "yellow", "value": 100 },
+              { "color": "red", "value": 10000 }
+            ]
+          }
+        },
+        "overrides": []
+      },
+      "options": {
+        "reduceOptions": { "calcs": ["lastNotNull"] },
+        "colorMode": "background",
+        "graphMode": "none"
+      }
+    },
+    {
+      "type": "stat",
+      "title": "Checkpoint Age",
+      "datasource": { "uid": "oracle-pg", "type": "postgres" },
+      "gridPos": { "h": 4, "w": 3, "x": 12, "y": 1 },
+      "targets": [
+        {
+          "rawSql": "SELECT EXTRACT(EPOCH FROM NOW() - updated_at)::int AS \"Seconds\" FROM indexer_state WHERE id = 1;",
+          "format": "table",
+          "refId": "A"
+        }
+      ],
+      "fieldConfig": {
+        "defaults": {
+          "unit": "s",
+          "thresholds": {
+            "mode": "absolute",
+            "steps": [
+              { "color": "green", "value": null },
+              { "color": "yellow", "value": 30 },
+              { "color": "red", "value": 120 }
+            ]
+          }
+        },
+        "overrides": []
+      },
+      "options": {
+        "reduceOptions": { "calcs": ["lastNotNull"] },
+        "colorMode": "background",
+        "graphMode": "none"
+      }
+    },
+    {
+      "type": "stat",
+      "title": "Data Freshness",
+      "datasource": { "uid": "oracle-pg", "type": "postgres" },
+      "gridPos": { "h": 4, "w": 3, "x": 15, "y": 1 },
+      "targets": [
+        {
+          "rawSql": "SELECT EXTRACT(EPOCH FROM NOW() - MAX(hour))::int AS \"Seconds\" FROM rollup_hourly_totals;",
+          "format": "table",
+          "refId": "A"
+        }
+      ],
+      "fieldConfig": {
+        "defaults": {
+          "unit": "s",
+          "thresholds": {
+            "mode": "absolute",
+            "steps": [
+              { "color": "green", "value": null },
+              { "color": "yellow", "value": 60 },
+              { "color": "red", "value": 300 }
+            ]
+          }
+        },
+        "overrides": []
+      },
+      "options": {
+        "reduceOptions": { "calcs": ["lastNotNull"] },
+        "colorMode": "background",
+        "graphMode": "none"
+      }
+    },
+    {
+      "type": "stat",
+      "title": "Total Events Indexed",
+      "datasource": { "uid": "oracle-pg", "type": "postgres" },
+      "gridPos": { "h": 4, "w": 3, "x": 18, "y": 1 },
+      "targets": [
+        {
+          "rawSql": "SELECT SUM(event_count)::bigint AS \"Events\" FROM rollup_hourly_totals;",
+          "format": "table",
+          "refId": "A"
+        }
+      ],
+      "fieldConfig": {
+        "defaults": {
+          "thresholds": {
+            "mode": "absolute",
+            "steps": [{ "color": "blue", "value": null }]
+          }
+        },
+        "overrides": []
+      },
+      "options": {
+        "reduceOptions": { "calcs": ["lastNotNull"] },
+        "colorMode": "background",
+        "graphMode": "none"
+      }
+    },
+    {
+      "type": "stat",
+      "title": "Active Feeds",
+      "datasource": { "uid": "oracle-pg", "type": "postgres" },
+      "gridPos": { "h": 4, "w": 3, "x": 21, "y": 1 },
+      "targets": [
+        {
+          "rawSql": "SELECT COUNT(*) AS \"Feeds\" FROM discovered_assets;",
+          "format": "table",
+          "refId": "A"
+        }
+      ],
+      "fieldConfig": {
+        "defaults": {
+          "thresholds": {
+            "mode": "absolute",
+            "steps": [{ "color": "green", "value": null }]
+          }
+        },
+        "overrides": []
+      },
+      "options": {
+        "reduceOptions": { "calcs": ["lastNotNull"] },
+        "colorMode": "background",
+        "graphMode": "none"
+      }
+    },
+
+    {
+      "type": "row",
+      "title": "Indexing Throughput",
+      "gridPos": { "h": 1, "w": 24, "x": 0, "y": 5 },
+      "collapsed": false
+    },
+    {
+      "type": "timeseries",
+      "title": "Events Indexed Per Hour",
+      "datasource": { "uid": "oracle-pg", "type": "postgres" },
+      "gridPos": { "h": 8, "w": 12, "x": 0, "y": 6 },
+      "targets": [
+        {
+          "rawSql": "SELECT hour AS time, event_count AS \"Events\"\nFROM rollup_hourly_totals\nWHERE hour >= $__timeFrom()::timestamptz\n  AND hour <  $__timeTo()::timestamptz\nORDER BY 1;",
+          "format": "table",
+          "refId": "A"
+        }
+      ],
+      "fieldConfig": {
+        "defaults": {
+          "color": { "mode": "palette-classic" },
+          "custom": {
+            "lineWidth": 1,
+            "fillOpacity": 20,
+            "pointSize": 5,
+            "showPoints": "auto",
+            "spanNulls": false,
+            "axisBorderShow": false
+          }
+        },
+        "overrides": []
+      },
+      "options": {
+        "tooltip": { "mode": "single" },
+        "legend": { "displayMode": "list", "placement": "bottom" }
+      }
+    },
+    {
+      "type": "timeseries",
+      "title": "Block Number Over Time",
+      "datasource": { "uid": "oracle-pg", "type": "postgres" },
+      "gridPos": { "h": 8, "w": 12, "x": 12, "y": 6 },
+      "targets": [
+        {
+          "rawSql": "SELECT\n  hour AS time,\n  max_block AS \"Block\"\nFROM rollup_hourly_totals\nWHERE hour >= $__timeFrom()::timestamptz\n  AND hour < $__timeTo()::timestamptz\nORDER BY 1;",
+          "format": "table",
+          "refId": "A"
+        }
+      ],
+      "fieldConfig": {
+        "defaults": {
+          "color": { "mode": "fixed", "fixedColor": "blue" },
+          "custom": {
+            "lineWidth": 2,
+            "fillOpacity": 10,
+            "pointSize": 3,
+            "showPoints": "auto",
+            "spanNulls": false,
+            "axisBorderShow": false
+          },
+          "decimals": 0
+        },
+        "overrides": []
+      },
+      "options": {
+        "tooltip": { "mode": "single" },
+        "legend": { "displayMode": "list", "placement": "bottom" }
+      }
+    },
+
+    {
+      "type": "row",
+      "title": "Block Coverage",
+      "gridPos": { "h": 1, "w": 24, "x": 0, "y": 14 },
+      "collapsed": false
+    },
+    {
+      "type": "timeseries",
+      "title": "Blocks With Events Per Day",
+      "datasource": { "uid": "oracle-pg", "type": "postgres" },
+      "gridPos": { "h": 8, "w": 12, "x": 0, "y": 15 },
+      "targets": [
+        {
+          "rawSql": "SELECT date_trunc('day', hour) AS time, SUM(distinct_blocks)::int AS \"Blocks\"\nFROM rollup_hourly_totals\nWHERE hour >= $__timeFrom()::timestamptz\n  AND hour <  $__timeTo()::timestamptz\nGROUP BY 1\nORDER BY 1;",
+          "format": "table",
+          "refId": "A"
+        }
+      ],
+      "fieldConfig": {
+        "defaults": {
+          "color": { "mode": "palette-classic" },
+          "custom": {
+            "lineWidth": 1,
+            "fillOpacity": 20,
+            "pointSize": 5,
+            "showPoints": "auto",
+            "spanNulls": false,
+            "axisBorderShow": false
+          }
+        },
+        "overrides": []
+      },
+      "options": {
+        "tooltip": { "mode": "single" },
+        "legend": { "displayMode": "list", "placement": "bottom" }
+      }
+    },
+    {
+      "type": "table",
+      "title": "Data Gaps",
+      "datasource": { "uid": "oracle-pg", "type": "postgres" },
+      "gridPos": { "h": 8, "w": 12, "x": 12, "y": 15 },
+      "targets": [
+        {
+          "rawSql": "WITH daily AS (\n  SELECT\n    date_trunc('day', hour) AS day,\n    MIN(max_block) AS min_block,\n    MAX(max_block) AS max_block\n  FROM rollup_hourly_totals\n  GROUP BY 1\n  ORDER BY 1\n)\nSELECT\n  prev.day AS \"Gap Start\",\n  curr.day AS \"Gap End\",\n  EXTRACT(DAY FROM curr.day - prev.day)::int AS \"Days Missing\",\n  prev.max_block AS \"Last Block Before\",\n  curr.min_block AS \"First Block After\"\nFROM daily curr\nJOIN daily prev ON prev.day = (\n  SELECT MAX(day) FROM daily WHERE day < curr.day\n)\nWHERE curr.day - prev.day > INTERVAL '1 day'\nORDER BY prev.day;",
+          "format": "table",
+          "refId": "A"
+        }
+      ],
+      "fieldConfig": {
+        "defaults": {},
+        "overrides": []
+      },
+      "options": {
+        "showHeader": true,
+        "sortBy": [{ "displayName": "Gap Start", "desc": false }]
+      }
+    },
+
+    {
+      "type": "row",
+      "title": "Feed Discovery",
+      "gridPos": { "h": 1, "w": 24, "x": 0, "y": 23 },
+      "collapsed": false
+    },
+    {
+      "type": "timeseries",
+      "title": "Feeds Discovered Over Time",
+      "datasource": { "uid": "oracle-pg", "type": "postgres" },
+      "gridPos": { "h": 8, "w": 12, "x": 0, "y": 24 },
+      "targets": [
+        {
+          "rawSql": "SELECT\n  to_timestamp(pu.block_timestamp) AS time,\n  COUNT(*) OVER (ORDER BY pu.block_timestamp) AS \"Feeds\"\nFROM discovered_assets da\nJOIN LATERAL (\n  SELECT block_timestamp FROM price_updates\n  WHERE block_number = da.first_seen_block LIMIT 1\n) pu ON true\nORDER BY pu.block_timestamp;",
+          "format": "table",
+          "refId": "A"
+        }
+      ],
+      "fieldConfig": {
+        "defaults": {
+          "color": { "mode": "palette-classic" },
+          "custom": {
+            "lineWidth": 2,
+            "fillOpacity": 10,
+            "pointSize": 5,
+            "showPoints": "auto",
+            "spanNulls": false,
+            "axisBorderShow": false
+          }
+        },
+        "overrides": []
+      },
+      "options": {
+        "tooltip": { "mode": "single" },
+        "legend": { "displayMode": "list", "placement": "bottom" }
+      }
+    },
+    {
+      "type": "bargauge",
+      "title": "Events Per Feed",
+      "datasource": { "uid": "oracle-pg", "type": "postgres" },
+      "gridPos": { "h": 8, "w": 12, "x": 12, "y": 24 },
+      "targets": [
+        {
+          "rawSql": "SELECT\n  COALESCE(al.ticker, LEFT(da.encoded_asset_id, 10) || '...') AS \"Feed\",\n  da.update_count AS \"Events\"\nFROM discovered_assets da\nLEFT JOIN asset_labels al USING (encoded_asset_id)\nORDER BY da.update_count DESC;",
+          "format": "table",
+          "refId": "A"
+        }
+      ],
+      "fieldConfig": {
+        "defaults": {
+          "color": { "mode": "palette-classic" },
+          "thresholds": {
+            "mode": "absolute",
+            "steps": [{ "color": "green", "value": null }]
+          }
+        },
+        "overrides": []
+      },
+      "options": {
+        "reduceOptions": { "calcs": ["lastNotNull"] },
+        "orientation": "horizontal",
+        "displayMode": "gradient",
+        "showUnfilled": true,
+        "minVizWidth": 0,
+        "minVizHeight": 10
+      },
+      "transformations": [
+        {
+          "id": "rowsToFields",
+          "options": {
+            "mappings": [
+              { "fieldName": "Feed", "handlerKey": "field.name" },
+              { "fieldName": "Events", "handlerKey": "field.value" }
+            ]
+          }
+        }
+      ]
+    },
+
+    {
+      "type": "row",
+      "title": "Checkpoint History",
+      "gridPos": { "h": 1, "w": 24, "x": 0, "y": 32 },
+      "collapsed": false
+    },
+    {
+      "type": "stat",
+      "title": "Block Range Coverage",
+      "datasource": { "uid": "oracle-pg", "type": "postgres" },
+      "gridPos": { "h": 4, "w": 8, "x": 0, "y": 33 },
+      "targets": [
+        {
+          "rawSql": "SELECT MIN(max_block) AS \"First Block\", MAX(max_block) AS \"Last Block\" FROM rollup_hourly_totals;",
+          "format": "table",
+          "refId": "A"
+        }
+      ],
+      "fieldConfig": {
+        "defaults": {
+          "thresholds": {
+            "mode": "absolute",
+            "steps": [{ "color": "blue", "value": null }]
+          }
+        },
+        "overrides": []
+      },
+      "options": {
+        "reduceOptions": { "calcs": ["lastNotNull"] },
+        "colorMode": "background",
+        "graphMode": "none",
+        "textMode": "value_and_name"
+      }
+    },
+    {
+      "type": "stat",
+      "title": "Time Range Coverage",
+      "datasource": { "uid": "oracle-pg", "type": "postgres" },
+      "gridPos": { "h": 4, "w": 8, "x": 8, "y": 33 },
+      "targets": [
+        {
+          "rawSql": "SELECT\n  MIN(hour)::date AS \"Earliest\",\n  MAX(hour)::date AS \"Latest\"\nFROM rollup_hourly_totals;",
+          "format": "table",
+          "refId": "A"
+        }
+      ],
+      "fieldConfig": {
+        "defaults": {
+          "thresholds": {
+            "mode": "absolute",
+            "steps": [{ "color": "purple", "value": null }]
+          }
+        },
+        "overrides": []
+      },
+      "options": {
+        "reduceOptions": { "calcs": ["lastNotNull"] },
+        "colorMode": "background",
+        "graphMode": "none",
+        "textMode": "value_and_name"
+      }
+    },
+    {
+      "type": "table",
+      "title": "Indexer State Detail",
+      "datasource": { "uid": "oracle-pg", "type": "postgres" },
+      "gridPos": { "h": 4, "w": 8, "x": 16, "y": 33 },
+      "targets": [
+        {
+          "rawSql": "SELECT * FROM indexer_state WHERE id = 1;",
+          "format": "table",
+          "refId": "A"
+        }
+      ],
+      "fieldConfig": {
+        "defaults": {},
+        "overrides": []
+      },
+      "options": {
+        "showHeader": true
+      }
+    }
+  ]
+}

@@ -1,0 +1,23 @@
+{
+  "name": "oracle-index",
+  "private": true,
+  "scripts": {
+    "dev:indexer": "pnpm --filter @oracle-index/indexer dev",
+    "dev:api": "pnpm --filter @oracle-index/api dev",
+    "dev:dashboard": "pnpm --filter @oracle-index/dashboard dev",
+    "build": "pnpm -r build",
+    "db:migrate": "pnpm --filter @oracle-index/indexer migrate",
+    "lint": "eslint packages/*/src/**/*.ts",
+    "format": "prettier --write 'packages/*/src/**/*.{ts,tsx}'"
+  },
+  "pnpm": {
+    "onlyBuiltDependencies": ["esbuild"]
+  },
+  "devDependencies": {
+    "@types/node": "^20.11.0",
+    "eslint": "^9.0.0",
+    "prettier": "^3.2.0",
+    "tsx": "^4.7.0",
+    "typescript": "^5.4.0"
+  }
+}

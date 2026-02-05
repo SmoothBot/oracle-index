@@ -1,0 +1,543 @@
+{
+  "uid": "fault-detection",
+  "title": "Fault Detection",
+  "description": "Detect update gaps, anomalous price changes, and stuck prices",
+  "tags": ["oracle", "faults", "alerts"],
+  "timezone": "browser",
+  "schemaVersion": 39,
+  "version": 2,
+  "refresh": "30s",
+  "time": {
+    "from": "now-24h",
+    "to": "now"
+  },
+  "templating": {
+    "list": [
+      {
+        "name": "n",
+        "label": "Gap Threshold (blocks ≈ seconds)",
+        "type": "custom",
+        "query": "5, 10, 30, 60, 120, 300, 600",
+        "current": { "text": "30", "value": "30" },
+        "options": [
+          { "text": "5", "value": "5", "selected": false },
+          { "text": "10", "value": "10", "selected": false },
+          { "text": "30", "value": "30", "selected": true },
+          { "text": "60", "value": "60", "selected": false },
+          { "text": "120", "value": "120", "selected": false },
+          { "text": "300", "value": "300", "selected": false },
+          { "text": "600", "value": "600", "selected": false }
+        ]
+      },
+      {
+        "name": "feed",
+        "label": "Price Feed",
+        "type": "query",
+        "datasource": { "uid": "oracle-pg", "type": "postgres" },
+        "query": "SELECT da.encoded_asset_id AS __value, COALESCE(al.ticker, LEFT(da.encoded_asset_id, 10) || '...') AS __text FROM discovered_assets da LEFT JOIN asset_labels al USING (encoded_asset_id) ORDER BY da.update_count DESC",
+        "multi": false,
+        "includeAll": false,
+        "refresh": 1
+      },
+      {
+        "name": "resolution",
+        "label": "Price Resolution",
+        "type": "custom",
+        "query": "hourly, 1m, raw",
+        "current": { "text": "hourly", "value": "hourly" },
+        "options": [
+          { "text": "hourly", "value": "hourly", "selected": true },
+          { "text": "1m", "value": "1m", "selected": false },
+          { "text": "raw", "value": "raw", "selected": false }
+        ]
+      },
+      {
+        "name": "k",
+        "label": "Flat Price Threshold (minutes)",
+        "type": "custom",
+        "query": "1, 2, 3, 4, 5, 6, 7, 8, 9, 10, 15, 20",
+        "current": { "text": "5", "value": "5" },
+        "options": [
+          { "text": "1", "value": "1", "selected": false },
+          { "text": "2", "value": "2", "selected": false },
+          { "text": "3", "value": "3", "selected": false },
+          { "text": "4", "value": "4", "selected": false },
+          { "text": "5", "value": "5", "selected": true },
+          { "text": "6", "value": "6", "selected": false },
+          { "text": "7", "value": "7", "selected": false },
+          { "text": "8", "value": "8", "selected": false },
+          { "text": "9", "value": "9", "selected": false },
+          { "text": "10", "value": "10", "selected": false },
+          { "text": "15", "value": "15", "selected": false },
+          { "text": "20", "value": "20", "selected": false }
+        ]
+      }
+    ]
+  },
+  "panels": [
+    {
+      "type": "row",
+      "title": "Fault Summary",
+      "gridPos": { "h": 1, "w": 24, "x": 0, "y": 0 },
+      "collapsed": false
+    },
+    {
+      "type": "stat",
+      "title": "Update Gaps > $n Blocks (24h)",
+      "datasource": { "uid": "oracle-pg", "type": "postgres" },
+      "gridPos": { "h": 4, "w": 8, "x": 0, "y": 1 },
+      "targets": [
+        {
+          "rawSql": "SELECT COUNT(*) AS \"Gaps\"\nFROM rollup_block_gaps\nWHERE block_timestamp >= EXTRACT(EPOCH FROM NOW())::bigint - 86400\n  AND gap_size > ${n}",
+          "format": "table",
+          "refId": "A"
+        }
+      ],
+      "fieldConfig": {
+        "defaults": {
+          "thresholds": {
+            "mode": "absolute",
+            "steps": [
+              { "color": "green", "value": null },
+              { "color": "yellow", "value": 1 },
+              { "color": "red", "value": 3 }
+            ]
+          }
+        },
+        "overrides": []
+      },
+      "options": {
+        "reduceOptions": { "calcs": ["lastNotNull"] },
+        "colorMode": "background",
+        "graphMode": "none"
+      }
+    },
+    {
+      "type": "stat",
+      "title": "Large Price Changes (24h)",
+      "datasource": { "uid": "oracle-pg", "type": "postgres" },
+      "gridPos": { "h": 4, "w": 8, "x": 8, "y": 1 },
+      "targets": [
+        {
+          "rawSql": "SELECT COUNT(*) AS \"Events\"\nFROM rollup_price_changes\nWHERE block_timestamp >= EXTRACT(EPOCH FROM NOW())::bigint - 86400;",
+          "format": "table",
+          "refId": "A"
+        }
+      ],
+      "fieldConfig": {
+        "defaults": {
+          "thresholds": {
+            "mode": "absolute",
+            "steps": [
+              { "color": "green", "value": null },
+              { "color": "yellow", "value": 1 },
+              { "color": "red", "value": 10 }
+            ]
+          }
+        },
+        "overrides": []
+      },
+      "options": {
+        "reduceOptions": { "calcs": ["lastNotNull"] },
+        "colorMode": "background",
+        "graphMode": "none"
+      }
+    },
+    {
+      "type": "stat",
+      "title": "Flat Price Feeds (>= $k min unchanged)",
+      "datasource": { "uid": "oracle-pg", "type": "postgres" },
+      "gridPos": { "h": 4, "w": 8, "x": 16, "y": 1 },
+      "targets": [
+        {
+          "rawSql": "SELECT COUNT(*) AS \"Feeds\" FROM (\n  SELECT encoded_asset_id\n  FROM (\n    SELECT encoded_asset_id, close_price,\n      ROW_NUMBER() OVER (PARTITION BY encoded_asset_id ORDER BY minute DESC) AS rn\n    FROM rollup_minute_prices\n  ) recent\n  WHERE rn <= ${k}\n  GROUP BY encoded_asset_id\n  HAVING COUNT(DISTINCT close_price) = 1\n) flat;",
+          "format": "table",
+          "refId": "A"
+        }
+      ],
+      "fieldConfig": {
+        "defaults": {
+          "thresholds": {
+            "mode": "absolute",
+            "steps": [
+              { "color": "green", "value": null },
+              { "color": "yellow", "value": 1 },
+              { "color": "red", "value": 5 }
+            ]
+          }
+        },
+        "overrides": []
+      },
+      "options": {
+        "reduceOptions": { "calcs": ["lastNotNull"] },
+        "colorMode": "background",
+        "graphMode": "none"
+      }
+    },
+
+    {
+      "type": "row",
+      "title": "Update Gaps",
+      "gridPos": { "h": 1, "w": 24, "x": 0, "y": 5 },
+      "collapsed": false
+    },
+    {
+      "type": "timeseries",
+      "title": "Update Gaps > $n Blocks",
+      "datasource": { "uid": "oracle-pg", "type": "postgres" },
+      "gridPos": { "h": 10, "w": 24, "x": 0, "y": 6 },
+      "targets": [
+        {
+          "rawSql": "SELECT\n  to_timestamp(block_timestamp) AS time,\n  gap_size AS \"Blocks Missed\"\nFROM rollup_block_gaps\nWHERE block_timestamp >= EXTRACT(EPOCH FROM $__timeFrom()::timestamptz)::bigint\n  AND block_timestamp < EXTRACT(EPOCH FROM $__timeTo()::timestamptz)::bigint\n  AND gap_size > ${n}\nORDER BY 1",
+          "format": "table",
+          "refId": "A"
+        }
+      ],
+      "fieldConfig": {
+        "defaults": {
+          "color": { "mode": "fixed", "fixedColor": "orange" },
+          "custom": {
+            "lineWidth": 0,
+            "fillOpacity": 0,
+            "drawStyle": "points",
+            "pointSize": 8,
+            "showPoints": "always",
+            "spanNulls": false,
+            "axisBorderShow": false,
+            "axisLabel": "Blocks missed"
+          },
+          "unit": "none"
+        },
+        "overrides": []
+      },
+      "options": {
+        "tooltip": { "mode": "single", "sort": "none" },
+        "legend": { "displayMode": "list", "placement": "bottom" }
+      }
+    },
+    {
+      "type": "timeseries",
+      "title": "Price Over Time",
+      "datasource": { "uid": "oracle-pg", "type": "postgres" },
+      "gridPos": { "h": 10, "w": 24, "x": 0, "y": 16 },
+      "targets": [
+        {
+          "rawSql": "SELECT hour AS time, close_price::float8 AS \"Price\"\nFROM hourly_metrics\nWHERE encoded_asset_id = '$feed'\n  AND hour >= $__timeFrom()\n  AND hour < $__timeTo()\n  AND '$resolution' = 'hourly'\nUNION ALL\nSELECT minute AS time, close_price::float8 AS \"Price\"\nFROM rollup_minute_prices\nWHERE encoded_asset_id = '$feed'\n  AND minute >= $__timeFrom()\n  AND minute < $__timeTo()\n  AND '$resolution' = '1m'\nUNION ALL\nSELECT to_timestamp(block_timestamp) AS time, price::float8 AS \"Price\"\nFROM price_updates\nWHERE encoded_asset_id = '$feed'\n  AND block_timestamp >= EXTRACT(EPOCH FROM $__timeFrom()::timestamptz)::bigint\n  AND block_timestamp < EXTRACT(EPOCH FROM $__timeTo()::timestamptz)::bigint\n  AND '$resolution' = 'raw'\nORDER BY time",
+          "format": "table",
+          "refId": "A"
+        }
+      ],
+      "fieldConfig": {
+        "defaults": {
+          "unit": "currencyUSD",
+          "decimals": 4,
+          "custom": {
+            "lineWidth": 1,
+            "fillOpacity": 8,
+            "showPoints": "auto",
+            "pointSize": 2
+          },
+          "color": { "mode": "fixed", "fixedColor": "blue" }
+        },
+        "overrides": []
+      },
+      "options": {
+        "tooltip": { "mode": "single" },
+        "legend": { "displayMode": "list", "placement": "bottom" }
+      }
+    },
+    {
+      "type": "table",
+      "title": "Update Gap Details",
+      "datasource": { "uid": "oracle-pg", "type": "postgres" },
+      "gridPos": { "h": 8, "w": 24, "x": 0, "y": 26 },
+      "targets": [
+        {
+          "rawSql": "SELECT\n  to_timestamp(g.block_timestamp) AS \"Gap End\",\n  g.gap_size AS \"Blocks Missed\",\n  g.prev_block AS \"Start Block\",\n  g.block_number AS \"End Block\",\n  (SELECT tx_hash FROM price_updates WHERE block_number = g.prev_block LIMIT 1) AS \"Pre-gap Tx\",\n  (SELECT tx_hash FROM price_updates WHERE block_number = g.block_number LIMIT 1) AS \"Post-gap Tx\"\nFROM rollup_block_gaps g\nWHERE g.block_timestamp >= EXTRACT(EPOCH FROM $__timeFrom()::timestamptz)::bigint\n  AND g.block_timestamp < EXTRACT(EPOCH FROM $__timeTo()::timestamptz)::bigint\n  AND g.gap_size > ${n}\nORDER BY g.gap_size DESC\nLIMIT 100",
+          "format": "table",
+          "refId": "A"
+        }
+      ],
+      "fieldConfig": {
+        "defaults": {},
+        "overrides": [
+          {
+            "matcher": { "id": "byName", "options": "Pre-gap Tx" },
+            "properties": [
+              {
+                "id": "links",
+                "value": [{ "title": "View on Explorer", "url": "https://explorer.testnet.riselabs.xyz/tx/${__value.text}" }]
+              }
+            ]
+          },
+          {
+            "matcher": { "id": "byName", "options": "Post-gap Tx" },
+            "properties": [
+              {
+                "id": "links",
+                "value": [{ "title": "View on Explorer", "url": "https://explorer.testnet.riselabs.xyz/tx/${__value.text}" }]
+              }
+            ]
+          }
+        ]
+      },
+      "options": {
+        "showHeader": true,
+        "sortBy": [{ "displayName": "Blocks Missed", "desc": true }]
+      }
+    },
+
+    {
+      "type": "row",
+      "title": "Large Price Changes",
+      "gridPos": { "h": 1, "w": 24, "x": 0, "y": 34 },
+      "collapsed": false
+    },
+    {
+      "type": "timeseries",
+      "title": "Large Price Changes (> 1%)",
+      "datasource": { "uid": "oracle-pg", "type": "postgres" },
+      "gridPos": { "h": 10, "w": 24, "x": 0, "y": 35 },
+      "targets": [
+        {
+          "rawSql": "SELECT\n  to_timestamp(rpc.block_timestamp) AS time,\n  ABS(rpc.change_pct) AS \"Change %\"\nFROM rollup_price_changes rpc\nWHERE rpc.block_timestamp >= EXTRACT(EPOCH FROM $__timeFrom()::timestamptz)::bigint\n  AND rpc.block_timestamp < EXTRACT(EPOCH FROM $__timeTo()::timestamptz)::bigint\nORDER BY 1;",
+          "format": "table",
+          "refId": "A"
+        }
+      ],
+      "fieldConfig": {
+        "defaults": {
+          "color": { "mode": "fixed", "fixedColor": "red" },
+          "custom": {
+            "lineWidth": 0,
+            "fillOpacity": 0,
+            "drawStyle": "points",
+            "pointSize": 8,
+            "showPoints": "always",
+            "spanNulls": false,
+            "axisBorderShow": false,
+            "axisLabel": "Change %"
+          },
+          "unit": "percent"
+        },
+        "overrides": []
+      },
+      "options": {
+        "tooltip": { "mode": "single", "sort": "none" },
+        "legend": { "displayMode": "list", "placement": "bottom" }
+      }
+    },
+    {
+      "type": "timeseries",
+      "title": "Large Price Changes Per Hour (> 1%)",
+      "datasource": { "uid": "oracle-pg", "type": "postgres" },
+      "gridPos": { "h": 8, "w": 12, "x": 0, "y": 45 },
+      "targets": [
+        {
+          "rawSql": "SELECT\n  date_trunc('hour', to_timestamp(block_timestamp)) AS time,\n  COUNT(*) AS \"Events\"\nFROM rollup_price_changes\nWHERE block_timestamp >= EXTRACT(EPOCH FROM $__timeFrom()::timestamptz)::bigint\n  AND block_timestamp <  EXTRACT(EPOCH FROM $__timeTo()::timestamptz)::bigint\nGROUP BY 1\nORDER BY 1;",
+          "format": "table",
+          "refId": "A"
+        }
+      ],
+      "fieldConfig": {
+        "defaults": {
+          "color": { "mode": "fixed", "fixedColor": "red" },
+          "custom": {
+            "lineWidth": 1,
+            "fillOpacity": 30,
+            "pointSize": 5,
+            "showPoints": "auto",
+            "spanNulls": false,
+            "drawStyle": "bars",
+            "axisBorderShow": false
+          }
+        },
+        "overrides": []
+      },
+      "options": {
+        "tooltip": { "mode": "single" },
+        "legend": { "displayMode": "list", "placement": "bottom" }
+      }
+    },
+    {
+      "type": "table",
+      "title": "Large Price Change Events",
+      "datasource": { "uid": "oracle-pg", "type": "postgres" },
+      "gridPos": { "h": 8, "w": 12, "x": 12, "y": 45 },
+      "targets": [
+        {
+          "rawSql": "SELECT\n  COALESCE(al.ticker, LEFT(rpc.encoded_asset_id, 10) || '...') AS \"Feed\",\n  to_timestamp(rpc.block_timestamp) AS \"Time\",\n  rpc.block_number AS \"Block\",\n  rpc.prev_price AS \"Previous Price\",\n  rpc.new_price AS \"New Price\",\n  ABS(rpc.change_pct) AS \"Change %\"\nFROM rollup_price_changes rpc\nLEFT JOIN asset_labels al USING (encoded_asset_id)\nWHERE rpc.block_timestamp >= EXTRACT(EPOCH FROM $__timeFrom()::timestamptz)::bigint\n  AND rpc.block_timestamp <  EXTRACT(EPOCH FROM $__timeTo()::timestamptz)::bigint\nORDER BY ABS(rpc.change_pct) DESC\nLIMIT 100;",
+          "format": "table",
+          "refId": "A"
+        }
+      ],
+      "fieldConfig": {
+        "defaults": {},
+        "overrides": []
+      },
+      "options": {
+        "showHeader": true,
+        "sortBy": [{ "displayName": "Change %", "desc": true }]
+      }
+    },
+
+    {
+      "type": "row",
+      "title": "Flat Prices",
+      "gridPos": { "h": 1, "w": 24, "x": 0, "y": 53 },
+      "collapsed": false
+    },
+    {
+      "type": "table",
+      "title": "Feeds With >= $k Minutes Unchanged Price",
+      "datasource": { "uid": "oracle-pg", "type": "postgres" },
+      "gridPos": { "h": 8, "w": 12, "x": 0, "y": 54 },
+      "targets": [
+        {
+          "rawSql": "WITH recent AS (\n  SELECT encoded_asset_id, close_price, minute, update_count,\n    ROW_NUMBER() OVER (PARTITION BY encoded_asset_id ORDER BY minute DESC) AS rn\n  FROM rollup_minute_prices\n),\nflat AS (\n  SELECT\n    encoded_asset_id,\n    MIN(close_price) AS price,\n    COUNT(*) AS flat_minutes,\n    SUM(update_count) AS total_updates,\n    MIN(minute) AS from_minute,\n    MAX(minute) AS to_minute\n  FROM recent\n  WHERE rn <= ${k}\n  GROUP BY encoded_asset_id\n  HAVING COUNT(DISTINCT close_price) = 1\n)\nSELECT\n  COALESCE(al.ticker, LEFT(f.encoded_asset_id, 10) || '...') AS \"Feed\",\n  f.price AS \"Stuck Price\",\n  f.flat_minutes AS \"Flat Minutes\",\n  f.total_updates AS \"Updates In Period\",\n  f.from_minute AS \"From\",\n  f.to_minute AS \"To\"\nFROM flat f\nLEFT JOIN asset_labels al USING (encoded_asset_id)\nORDER BY f.flat_minutes DESC;",
+          "format": "table",
+          "refId": "A"
+        }
+      ],
+      "fieldConfig": {
+        "defaults": {},
+        "overrides": []
+      },
+      "options": {
+        "showHeader": true,
+        "sortBy": [{ "displayName": "Unchanged Updates", "desc": true }]
+      }
+    },
+    {
+      "type": "table",
+      "title": "Current Flat Streak (all feeds)",
+      "datasource": { "uid": "oracle-pg", "type": "postgres" },
+      "gridPos": { "h": 8, "w": 12, "x": 12, "y": 54 },
+      "targets": [
+        {
+          "rawSql": "WITH latest AS (\n  SELECT DISTINCT ON (encoded_asset_id)\n    encoded_asset_id, close_price AS current_price, minute AS latest_minute\n  FROM rollup_minute_prices\n  ORDER BY encoded_asset_id, minute DESC\n),\nlast_change AS (\n  SELECT\n    l.encoded_asset_id,\n    MAX(mp.minute) AS change_minute\n  FROM latest l\n  JOIN rollup_minute_prices mp ON mp.encoded_asset_id = l.encoded_asset_id\n    AND mp.close_price != l.current_price\n  GROUP BY l.encoded_asset_id\n)\nSELECT\n  COALESCE(al.ticker, LEFT(l.encoded_asset_id, 10) || '...') AS \"Feed\",\n  l.current_price::float8 AS \"Current Price\",\n  EXTRACT(EPOCH FROM l.latest_minute - COALESCE(lc.change_minute, '1970-01-01'::timestamptz))::int / 60 AS \"Flat Minutes\",\n  lc.change_minute AS \"Last Change\",\n  l.latest_minute AS \"Latest Minute\"\nFROM latest l\nLEFT JOIN last_change lc USING (encoded_asset_id)\nLEFT JOIN asset_labels al ON al.encoded_asset_id = l.encoded_asset_id\nORDER BY \"Flat Minutes\" DESC;",
+          "format": "table",
+          "refId": "A"
+        }
+      ],
+      "fieldConfig": {
+        "defaults": {},
+        "overrides": []
+      },
+      "options": {
+        "showHeader": true,
+        "sortBy": [{ "displayName": "Run Length", "desc": true }]
+      }
+    },
+
+    {
+      "type": "row",
+      "title": "Latency",
+      "gridPos": { "h": 1, "w": 24, "x": 0, "y": 62 },
+      "collapsed": false
+    },
+    {
+      "type": "timeseries",
+      "title": "Update Latency ($resolution)",
+      "datasource": { "uid": "oracle-pg", "type": "postgres" },
+      "gridPos": { "h": 10, "w": 24, "x": 0, "y": 63 },
+      "targets": [
+        {
+          "rawSql": "SELECT\n  hour AS time,\n  p50_delay_ms AS \"P50\",\n  p95_delay_ms AS \"P95\",\n  p99_delay_ms AS \"P99\",\n  max_delay_ms AS \"Max\"\nFROM hourly_metrics\nWHERE encoded_asset_id = '$feed'\n  AND hour >= $__timeFrom()\n  AND hour < $__timeTo()\n  AND '$resolution' != 'raw'\nORDER BY hour",
+          "format": "table",
+          "refId": "A"
+        },
+        {
+          "rawSql": "SELECT\n  to_timestamp(block_timestamp) AS time,\n  time_delay_ms AS \"Latency (ms)\"\nFROM price_updates\nWHERE encoded_asset_id = '$feed'\n  AND block_timestamp >= EXTRACT(EPOCH FROM $__timeFrom()::timestamptz)::bigint\n  AND block_timestamp < EXTRACT(EPOCH FROM $__timeTo()::timestamptz)::bigint\n  AND '$resolution' = 'raw'\nORDER BY 1",
+          "format": "table",
+          "refId": "B"
+        }
+      ],
+      "fieldConfig": {
+        "defaults": {
+          "unit": "ms",
+          "custom": {
+            "lineWidth": 1,
+            "fillOpacity": 10,
+            "showPoints": "auto",
+            "pointSize": 2
+          },
+          "color": { "mode": "fixed", "fixedColor": "orange" }
+        },
+        "overrides": [
+          {
+            "matcher": { "id": "byName", "options": "P50" },
+            "properties": [{ "id": "color", "value": { "mode": "fixed", "fixedColor": "orange" } }]
+          },
+          {
+            "matcher": { "id": "byName", "options": "P95" },
+            "properties": [{ "id": "color", "value": { "mode": "fixed", "fixedColor": "yellow" } }]
+          },
+          {
+            "matcher": { "id": "byName", "options": "P99" },
+            "properties": [{ "id": "color", "value": { "mode": "fixed", "fixedColor": "red" } }]
+          },
+          {
+            "matcher": { "id": "byName", "options": "Max" },
+            "properties": [{ "id": "color", "value": { "mode": "fixed", "fixedColor": "dark-red" } }]
+          },
+          {
+            "matcher": { "id": "byName", "options": "Latency (ms)" },
+            "properties": [{ "id": "color", "value": { "mode": "fixed", "fixedColor": "orange" } }]
+          }
+        ]
+      },
+      "options": {
+        "tooltip": { "mode": "single" },
+        "legend": { "displayMode": "list", "placement": "bottom" }
+      }
+    },
+    {
+      "type": "timeseries",
+      "title": "Latency Percentiles Over Time",
+      "datasource": { "uid": "oracle-pg", "type": "postgres" },
+      "gridPos": { "h": 10, "w": 24, "x": 0, "y": 73 },
+      "targets": [
+        {
+          "rawSql": "SELECT\n  hour AS time,\n  ROUND(AVG(p50_delay_ms)) AS \"P50\",\n  ROUND(AVG(p95_delay_ms)) AS \"P95\",\n  ROUND(AVG(p99_delay_ms)) AS \"P99\",\n  ROUND(MAX(max_delay_ms)) AS \"Max\"\nFROM hourly_metrics\nWHERE hour >= $__timeFrom()\n  AND hour < $__timeTo()\nGROUP BY hour\nORDER BY hour",
+          "format": "table",
+          "refId": "A"
+        }
+      ],
+      "fieldConfig": {
+        "defaults": {
+          "unit": "ms",
+          "custom": {
+            "lineWidth": 1,
+            "fillOpacity": 5,
+            "showPoints": "auto",
+            "pointSize": 3,
+            "spanNulls": false
+          }
+        },
+        "overrides": [
+          {
+            "matcher": { "id": "byName", "options": "P50" },
+            "properties": [{ "id": "color", "value": { "mode": "fixed", "fixedColor": "green" } }]
+          },
+          {
+            "matcher": { "id": "byName", "options": "P95" },
+            "properties": [{ "id": "color", "value": { "mode": "fixed", "fixedColor": "yellow" } }]
+          },
+          {
+            "matcher": { "id": "byName", "options": "P99" },
+            "properties": [{ "id": "color", "value": { "mode": "fixed", "fixedColor": "red" } }]
+          },
+          {
+            "matcher": { "id": "byName", "options": "Max" },
+            "properties": [{ "id": "color", "value": { "mode": "fixed", "fixedColor": "dark-red" } }]
+          }
+        ]
+      },
+      "options": {
+        "tooltip": { "mode": "multi", "sort": "desc" },
+        "legend": { "displayMode": "list", "placement": "bottom" }
+      }
+    }
+  ]
+}

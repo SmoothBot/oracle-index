@@ -1,0 +1,575 @@
+{
+  "uid": "oracle-index",
+  "title": "Oracle Index",
+  "description": "Observability dashboard for oracle price feed indexer",
+  "tags": ["oracle", "indexer"],
+  "timezone": "browser",
+  "schemaVersion": 39,
+  "version": 2,
+  "refresh": "30s",
+  "time": {
+    "from": "now-7d",
+    "to": "now"
+  },
+  "templating": {
+    "list": [
+      {
+        "name": "asset",
+        "label": "Asset",
+        "type": "query",
+        "datasource": { "uid": "oracle-pg", "type": "postgres" },
+        "query": "SELECT da.encoded_asset_id AS __value, COALESCE(al.ticker, LEFT(da.encoded_asset_id, 10) || '...') AS __text FROM discovered_assets da LEFT JOIN asset_labels al USING (encoded_asset_id) ORDER BY da.update_count DESC",
+        "multi": true,
+        "includeAll": true,
+        "current": { "text": "All", "value": "$__all" },
+        "refresh": 1
+      }
+    ]
+  },
+  "panels": [
+    {
+      "type": "row",
+      "title": "Overview",
+      "gridPos": { "h": 1, "w": 24, "x": 0, "y": 0 },
+      "collapsed": false
+    },
+    {
+      "type": "stat",
+      "title": "Total Price Updates",
+      "datasource": { "uid": "oracle-pg", "type": "postgres" },
+      "gridPos": { "h": 4, "w": 6, "x": 0, "y": 1 },
+      "targets": [
+        {
+          "rawSql": "SELECT SUM(event_count) AS \"Total\" FROM rollup_hourly_totals;",
+          "format": "table",
+          "refId": "A"
+        }
+      ],
+      "fieldConfig": {
+        "defaults": {
+          "thresholds": {
+            "mode": "absolute",
+            "steps": [{ "color": "blue", "value": null }]
+          }
+        },
+        "overrides": []
+      },
+      "options": {
+        "reduceOptions": { "calcs": ["lastNotNull"] },
+        "colorMode": "background",
+        "graphMode": "none"
+      }
+    },
+    {
+      "type": "stat",
+      "title": "Active Assets",
+      "datasource": { "uid": "oracle-pg", "type": "postgres" },
+      "gridPos": { "h": 4, "w": 6, "x": 6, "y": 1 },
+      "targets": [
+        {
+          "rawSql": "SELECT COUNT(*) AS \"Assets\" FROM discovered_assets;",
+          "format": "table",
+          "refId": "A"
+        }
+      ],
+      "fieldConfig": {
+        "defaults": {
+          "thresholds": {
+            "mode": "absolute",
+            "steps": [{ "color": "green", "value": null }]
+          }
+        },
+        "overrides": []
+      },
+      "options": {
+        "reduceOptions": { "calcs": ["lastNotNull"] },
+        "colorMode": "background",
+        "graphMode": "none"
+      }
+    },
+    {
+      "type": "stat",
+      "title": "Indexer Sync Status",
+      "datasource": { "uid": "oracle-pg", "type": "postgres" },
+      "gridPos": { "h": 4, "w": 6, "x": 12, "y": 1 },
+      "targets": [
+        {
+          "rawSql": "SELECT CASE WHEN is_backfill_complete THEN 'Synced' ELSE 'Backfilling' END AS \"Status\", last_block AS \"Last Block\" FROM indexer_state WHERE id = 1;",
+          "format": "table",
+          "refId": "A"
+        }
+      ],
+      "fieldConfig": {
+        "defaults": {
+          "thresholds": {
+            "mode": "absolute",
+            "steps": [{ "color": "green", "value": null }]
+          },
+          "mappings": [
+            { "type": "value", "options": { "Backfilling": { "text": "Backfilling", "color": "yellow" } } },
+            { "type": "value", "options": { "Synced": { "text": "Synced", "color": "green" } } }
+          ]
+        },
+        "overrides": []
+      },
+      "options": {
+        "reduceOptions": { "calcs": ["lastNotNull"], "fields": "/^Status$/" },
+        "colorMode": "background",
+        "graphMode": "none"
+      }
+    },
+    {
+      "type": "stat",
+      "title": "Total Issues",
+      "datasource": { "uid": "oracle-pg", "type": "postgres" },
+      "gridPos": { "h": 4, "w": 6, "x": 18, "y": 1 },
+      "targets": [
+        {
+          "rawSql": "SELECT COUNT(*) AS \"Issues\" FROM detected_issues;",
+          "format": "table",
+          "refId": "A"
+        }
+      ],
+      "fieldConfig": {
+        "defaults": {
+          "thresholds": {
+            "mode": "absolute",
+            "steps": [
+              { "color": "green", "value": null },
+              { "color": "yellow", "value": 10 },
+              { "color": "red", "value": 100 }
+            ]
+          }
+        },
+        "overrides": []
+      },
+      "options": {
+        "reduceOptions": { "calcs": ["lastNotNull"] },
+        "colorMode": "background",
+        "graphMode": "none"
+      }
+    },
+
+    {
+      "type": "row",
+      "title": "Latency Monitoring",
+      "gridPos": { "h": 1, "w": 24, "x": 0, "y": 5 },
+      "collapsed": false
+    },
+    {
+      "type": "timeseries",
+      "title": "Latency Percentiles Over Time",
+      "datasource": { "uid": "oracle-pg", "type": "postgres" },
+      "gridPos": { "h": 8, "w": 14, "x": 0, "y": 6 },
+      "targets": [
+        {
+          "rawSql": "SELECT\n  hour AS time,\n  ROUND(AVG(p50_delay_ms)) AS \"p50\",\n  ROUND(AVG(p95_delay_ms)) AS \"p95\",\n  ROUND(AVG(p99_delay_ms)) AS \"p99\"\nFROM hourly_metrics\nWHERE hour >= $__timeFrom()\n  AND hour < $__timeTo()\n  AND encoded_asset_id IN ($asset)\nGROUP BY hour\nORDER BY hour",
+          "format": "table",
+          "refId": "A"
+        }
+      ],
+      "fieldConfig": {
+        "defaults": {
+          "unit": "ms",
+          "custom": {
+            "lineWidth": 2,
+            "fillOpacity": 10,
+            "showPoints": "auto",
+            "pointSize": 5
+          }
+        },
+        "overrides": [
+          {
+            "matcher": { "id": "byName", "options": "p50" },
+            "properties": [{ "id": "color", "value": { "fixedColor": "green", "mode": "fixed" } }]
+          },
+          {
+            "matcher": { "id": "byName", "options": "p95" },
+            "properties": [{ "id": "color", "value": { "fixedColor": "yellow", "mode": "fixed" } }]
+          },
+          {
+            "matcher": { "id": "byName", "options": "p99" },
+            "properties": [{ "id": "color", "value": { "fixedColor": "red", "mode": "fixed" } }]
+          }
+        ]
+      },
+      "options": {
+        "tooltip": { "mode": "multi", "sort": "desc" },
+        "legend": { "displayMode": "list", "placement": "bottom" }
+      }
+    },
+    {
+      "type": "bargauge",
+      "title": "Average Delay by Asset",
+      "datasource": { "uid": "oracle-pg", "type": "postgres" },
+      "gridPos": { "h": 8, "w": 10, "x": 14, "y": 6 },
+      "targets": [
+        {
+          "rawSql": "SELECT\n  COALESCE(al.ticker, LEFT(hm.encoded_asset_id, 10) || '...') AS \"Asset\",\n  ROUND(AVG(hm.avg_delay_ms)) AS \"Avg Delay (ms)\"\nFROM hourly_metrics hm\nLEFT JOIN asset_labels al ON al.encoded_asset_id = hm.encoded_asset_id\nWHERE hm.hour >= NOW() - INTERVAL '24 hours'\nGROUP BY 1\nORDER BY \"Avg Delay (ms)\" DESC",
+          "format": "table",
+          "refId": "A"
+        }
+      ],
+      "fieldConfig": {
+        "defaults": {
+          "unit": "ms",
+          "thresholds": {
+            "mode": "absolute",
+            "steps": [
+              { "color": "green", "value": null },
+              { "color": "yellow", "value": 5000 },
+              { "color": "red", "value": 30000 }
+            ]
+          }
+        },
+        "overrides": []
+      },
+      "options": {
+        "orientation": "horizontal",
+        "displayMode": "gradient",
+        "reduceOptions": { "calcs": ["lastNotNull"] }
+      }
+    },
+
+    {
+      "type": "row",
+      "title": "Data Volume",
+      "gridPos": { "h": 1, "w": 24, "x": 0, "y": 14 },
+      "collapsed": false
+    },
+    {
+      "type": "timeseries",
+      "title": "Updates Per Hour",
+      "datasource": { "uid": "oracle-pg", "type": "postgres" },
+      "gridPos": { "h": 8, "w": 12, "x": 0, "y": 15 },
+      "targets": [
+        {
+          "rawSql": "SELECT\n  hm.hour AS time,\n  COALESCE(al.ticker, LEFT(hm.encoded_asset_id, 10) || '...') AS metric,\n  hm.update_count AS \"Updates\"\nFROM hourly_metrics hm\nLEFT JOIN asset_labels al ON al.encoded_asset_id = hm.encoded_asset_id\nWHERE hm.hour >= $__timeFrom()\n  AND hm.hour < $__timeTo()\n  AND hm.encoded_asset_id IN ($asset)\nORDER BY 1",
+          "format": "time_series",
+          "refId": "A"
+        }
+      ],
+      "fieldConfig": {
+        "defaults": {
+          "custom": {
+            "stacking": { "mode": "normal", "group": "A" },
+            "fillOpacity": 50,
+            "lineWidth": 1
+          }
+        },
+        "overrides": []
+      },
+      "options": {
+        "tooltip": { "mode": "multi", "sort": "desc" },
+        "legend": { "displayMode": "list", "placement": "bottom" }
+      }
+    },
+    {
+      "type": "timeseries",
+      "title": "Issues Over Time (by block time)",
+      "datasource": { "uid": "oracle-pg", "type": "postgres" },
+      "gridPos": { "h": 8, "w": 12, "x": 12, "y": 15 },
+      "targets": [
+        {
+          "rawSql": "SELECT\n  date_trunc('day', di.detected_at) AS time,\n  di.issue_type AS metric,\n  COUNT(DISTINCT di.id) AS \"Count\"\nFROM detected_issues di\nWHERE di.detected_at >= $__timeFrom()\n  AND di.detected_at < $__timeTo()\nGROUP BY 1, di.issue_type\nORDER BY 1",
+          "format": "time_series",
+          "refId": "A"
+        }
+      ],
+      "fieldConfig": {
+        "defaults": {
+          "custom": {
+            "drawStyle": "bars",
+            "stacking": { "mode": "normal", "group": "A" },
+            "fillOpacity": 80,
+            "lineWidth": 0
+          }
+        },
+        "overrides": []
+      },
+      "options": {
+        "tooltip": { "mode": "multi", "sort": "desc" },
+        "legend": { "displayMode": "list", "placement": "bottom" }
+      }
+    },
+
+    {
+      "type": "row",
+      "title": "Price Monitoring",
+      "gridPos": { "h": 1, "w": 24, "x": 0, "y": 23 },
+      "collapsed": false
+    },
+    {
+      "type": "timeseries",
+      "title": "Price Over Time",
+      "datasource": { "uid": "oracle-pg", "type": "postgres" },
+      "gridPos": { "h": 8, "w": 12, "x": 0, "y": 24 },
+      "targets": [
+        {
+          "rawSql": "SELECT\n  hm.hour AS time,\n  COALESCE(al.ticker, LEFT(hm.encoded_asset_id, 10) || '...') AS metric,\n  hm.avg_price::float8 AS \"Price\"\nFROM hourly_metrics hm\nLEFT JOIN asset_labels al ON al.encoded_asset_id = hm.encoded_asset_id\nWHERE hm.hour >= $__timeFrom()\n  AND hm.hour < $__timeTo()\n  AND hm.encoded_asset_id IN ($asset)\nORDER BY 1",
+          "format": "time_series",
+          "refId": "A"
+        }
+      ],
+      "fieldConfig": {
+        "defaults": {
+          "unit": "currencyUSD",
+          "custom": {
+            "lineWidth": 2,
+            "fillOpacity": 5,
+            "showPoints": "auto",
+            "pointSize": 3
+          },
+          "decimals": 4
+        },
+        "overrides": []
+      },
+      "options": {
+        "tooltip": { "mode": "multi", "sort": "desc" },
+        "legend": { "displayMode": "list", "placement": "bottom" }
+      }
+    },
+    {
+      "type": "timeseries",
+      "title": "Price Volatility (Stddev)",
+      "datasource": { "uid": "oracle-pg", "type": "postgres" },
+      "gridPos": { "h": 8, "w": 12, "x": 12, "y": 24 },
+      "targets": [
+        {
+          "rawSql": "SELECT\n  hm.hour AS time,\n  COALESCE(al.ticker, LEFT(hm.encoded_asset_id, 10) || '...') AS metric,\n  hm.price_stddev::float8 AS \"Stddev\"\nFROM hourly_metrics hm\nLEFT JOIN asset_labels al ON al.encoded_asset_id = hm.encoded_asset_id\nWHERE hm.hour >= $__timeFrom()\n  AND hm.hour < $__timeTo()\n  AND hm.encoded_asset_id IN ($asset)\nORDER BY 1",
+          "format": "time_series",
+          "refId": "A"
+        }
+      ],
+      "fieldConfig": {
+        "defaults": {
+          "custom": {
+            "fillOpacity": 15,
+            "lineWidth": 2,
+            "gradientMode": "scheme"
+          },
+          "thresholds": {
+            "mode": "absolute",
+            "steps": [
+              { "color": "green", "value": null },
+              { "color": "yellow", "value": 0.01 },
+              { "color": "red", "value": 0.1 }
+            ]
+          },
+          "decimals": 6
+        },
+        "overrides": []
+      },
+      "options": {
+        "tooltip": { "mode": "multi", "sort": "desc" },
+        "legend": { "displayMode": "list", "placement": "bottom" }
+      }
+    },
+
+    {
+      "type": "row",
+      "title": "Issues",
+      "gridPos": { "h": 1, "w": 24, "x": 0, "y": 32 },
+      "collapsed": false
+    },
+    {
+      "type": "piechart",
+      "title": "Issues by Severity",
+      "datasource": { "uid": "oracle-pg", "type": "postgres" },
+      "gridPos": { "h": 8, "w": 6, "x": 0, "y": 33 },
+      "targets": [
+        {
+          "rawSql": "SELECT severity AS \"Severity\", COUNT(*) AS \"Count\" FROM detected_issues GROUP BY severity;",
+          "format": "table",
+          "refId": "A"
+        }
+      ],
+      "fieldConfig": {
+        "defaults": {},
+        "overrides": [
+          {
+            "matcher": { "id": "byName", "options": "critical" },
+            "properties": [{ "id": "color", "value": { "fixedColor": "red", "mode": "fixed" } }]
+          },
+          {
+            "matcher": { "id": "byName", "options": "warning" },
+            "properties": [{ "id": "color", "value": { "fixedColor": "yellow", "mode": "fixed" } }]
+          }
+        ]
+      },
+      "options": {
+        "reduceOptions": { "calcs": ["sum"] },
+        "legend": { "displayMode": "list", "placement": "right" },
+        "pieType": "donut"
+      }
+    },
+    {
+      "type": "piechart",
+      "title": "Issues by Type",
+      "datasource": { "uid": "oracle-pg", "type": "postgres" },
+      "gridPos": { "h": 8, "w": 6, "x": 6, "y": 33 },
+      "targets": [
+        {
+          "rawSql": "SELECT issue_type AS \"Type\", COUNT(*) AS \"Count\" FROM detected_issues GROUP BY issue_type;",
+          "format": "table",
+          "refId": "A"
+        }
+      ],
+      "fieldConfig": {
+        "defaults": {},
+        "overrides": [
+          {
+            "matcher": { "id": "byName", "options": "high_latency" },
+            "properties": [{ "id": "color", "value": { "fixedColor": "orange", "mode": "fixed" } }]
+          },
+          {
+            "matcher": { "id": "byName", "options": "stale_price" },
+            "properties": [{ "id": "color", "value": { "fixedColor": "red", "mode": "fixed" } }]
+          },
+          {
+            "matcher": { "id": "byName", "options": "gap" },
+            "properties": [{ "id": "color", "value": { "fixedColor": "purple", "mode": "fixed" } }]
+          },
+          {
+            "matcher": { "id": "byName", "options": "price_jump" },
+            "properties": [{ "id": "color", "value": { "fixedColor": "yellow", "mode": "fixed" } }]
+          }
+        ]
+      },
+      "options": {
+        "reduceOptions": { "calcs": ["sum"] },
+        "legend": { "displayMode": "list", "placement": "right" },
+        "pieType": "donut"
+      }
+    },
+    {
+      "type": "table",
+      "title": "Recent Issues (by block time)",
+      "datasource": { "uid": "oracle-pg", "type": "postgres" },
+      "gridPos": { "h": 8, "w": 12, "x": 12, "y": 33 },
+      "targets": [
+        {
+          "rawSql": "SELECT\n  to_timestamp(bt.block_timestamp) AS \"Block Time\",\n  di.issue_type AS \"Type\",\n  di.severity AS \"Severity\",\n  COALESCE(al.ticker, LEFT(di.encoded_asset_id, 10) || '...') AS \"Asset\",\n  di.block_number AS \"Block\",\n  di.details::text AS \"Details\"\nFROM detected_issues di\nLEFT JOIN asset_labels al ON al.encoded_asset_id = di.encoded_asset_id\nCROSS JOIN LATERAL (\n  SELECT block_timestamp\n  FROM price_updates\n  WHERE block_number = di.block_number\n  LIMIT 1\n) bt\nORDER BY bt.block_timestamp DESC\nLIMIT 50;",
+          "format": "table",
+          "refId": "A"
+        }
+      ],
+      "fieldConfig": {
+        "defaults": {},
+        "overrides": [
+          {
+            "matcher": { "id": "byName", "options": "Severity" },
+            "properties": [
+              {
+                "id": "custom.cellOptions",
+                "value": { "type": "color-background", "mode": "basic" }
+              },
+              {
+                "id": "mappings",
+                "value": [
+                  { "type": "value", "options": { "critical": { "color": "red" } } },
+                  { "type": "value", "options": { "warning": { "color": "yellow" } } }
+                ]
+              }
+            ]
+          }
+        ]
+      },
+      "options": {
+        "showHeader": true,
+        "sortBy": [{ "displayName": "Block Time", "desc": true }],
+        "footer": { "show": false }
+      }
+    },
+
+    {
+      "type": "row",
+      "title": "Indexer Health",
+      "gridPos": { "h": 1, "w": 24, "x": 0, "y": 41 },
+      "collapsed": false
+    },
+    {
+      "type": "stat",
+      "title": "Blocks Indexed",
+      "datasource": { "uid": "oracle-pg", "type": "postgres" },
+      "gridPos": { "h": 4, "w": 6, "x": 0, "y": 42 },
+      "targets": [
+        {
+          "rawSql": "SELECT last_block AS \"Block\" FROM indexer_state WHERE id = 1;",
+          "format": "table",
+          "refId": "A"
+        }
+      ],
+      "fieldConfig": {
+        "defaults": {
+          "thresholds": {
+            "mode": "absolute",
+            "steps": [{ "color": "blue", "value": null }]
+          }
+        },
+        "overrides": []
+      },
+      "options": {
+        "reduceOptions": { "calcs": ["lastNotNull"] },
+        "colorMode": "background",
+        "graphMode": "none"
+      }
+    },
+    {
+      "type": "stat",
+      "title": "Last Checkpoint Update",
+      "datasource": { "uid": "oracle-pg", "type": "postgres" },
+      "gridPos": { "h": 4, "w": 6, "x": 6, "y": 42 },
+      "targets": [
+        {
+          "rawSql": "SELECT updated_at AS \"Updated\" FROM indexer_state WHERE id = 1;",
+          "format": "table",
+          "refId": "A"
+        }
+      ],
+      "fieldConfig": {
+        "defaults": {
+          "unit": "dateTimeAsIso",
+          "thresholds": {
+            "mode": "absolute",
+            "steps": [{ "color": "green", "value": null }]
+          }
+        },
+        "overrides": []
+      },
+      "options": {
+        "reduceOptions": { "calcs": ["lastNotNull"] },
+        "colorMode": "background",
+        "graphMode": "none"
+      }
+    },
+    {
+      "type": "timeseries",
+      "title": "Assets Discovery Rate",
+      "datasource": { "uid": "oracle-pg", "type": "postgres" },
+      "gridPos": { "h": 8, "w": 12, "x": 12, "y": 42 },
+      "targets": [
+        {
+          "rawSql": "WITH first_seen AS (\n  SELECT\n    encoded_asset_id,\n    MIN(block_timestamp) AS first_ts\n  FROM price_updates\n  GROUP BY encoded_asset_id\n)\nSELECT\n  to_timestamp(first_ts) AS time,\n  COUNT(*) OVER (ORDER BY first_ts) AS \"Total Assets\"\nFROM first_seen\nWHERE first_ts >= EXTRACT(EPOCH FROM $__timeFrom()::timestamptz)::bigint\n  AND first_ts < EXTRACT(EPOCH FROM $__timeTo()::timestamptz)::bigint\nORDER BY first_ts",
+          "format": "table",
+          "refId": "A"
+        }
+      ],
+      "fieldConfig": {
+        "defaults": {
+          "custom": {
+            "fillOpacity": 20,
+            "lineWidth": 2,
+            "stacking": { "mode": "none" }
+          },
+          "color": { "mode": "fixed", "fixedColor": "purple" }
+        },
+        "overrides": []
+      },
+      "options": {
+        "tooltip": { "mode": "single" },
+        "legend": { "displayMode": "list", "placement": "bottom" }
+      }
+    }
+  ]
+}

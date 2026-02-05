@@ -1,0 +1,500 @@
+{
+  "uid": "price-feed-detail",
+  "title": "Price Feed Detail",
+  "description": "Deep-dive into a single oracle price feed",
+  "tags": ["oracle", "feed"],
+  "timezone": "browser",
+  "schemaVersion": 39,
+  "version": 1,
+  "refresh": "30s",
+  "time": {
+    "from": "now-7d",
+    "to": "now"
+  },
+  "templating": {
+    "list": [
+      {
+        "name": "feed",
+        "label": "Price Feed",
+        "type": "query",
+        "datasource": { "uid": "oracle-pg", "type": "postgres" },
+        "query": "SELECT da.encoded_asset_id AS __value, COALESCE(al.ticker, LEFT(da.encoded_asset_id, 10) || '...') AS __text FROM discovered_assets da LEFT JOIN asset_labels al USING (encoded_asset_id) ORDER BY da.update_count DESC",
+        "multi": false,
+        "includeAll": false,
+        "refresh": 1
+      },
+      {
+        "name": "resolution",
+        "label": "Price Resolution",
+        "type": "custom",
+        "query": "hourly, 1m, raw",
+        "current": { "text": "hourly", "value": "hourly" },
+        "options": [
+          { "text": "hourly", "value": "hourly", "selected": true },
+          { "text": "1m", "value": "1m", "selected": false },
+          { "text": "raw", "value": "raw", "selected": false }
+        ]
+      }
+    ]
+  },
+  "panels": [
+    {
+      "type": "row",
+      "title": "Feed Overview",
+      "gridPos": { "h": 1, "w": 24, "x": 0, "y": 0 },
+      "collapsed": false
+    },
+    {
+      "type": "stat",
+      "title": "Latest Price",
+      "datasource": { "uid": "oracle-pg", "type": "postgres" },
+      "gridPos": { "h": 4, "w": 5, "x": 0, "y": 1 },
+      "targets": [
+        {
+          "rawSql": "SELECT price::float8 AS \"Price\"\nFROM price_updates\nWHERE encoded_asset_id = '$feed'\nORDER BY block_timestamp DESC\nLIMIT 1;",
+          "format": "table",
+          "refId": "A"
+        }
+      ],
+      "fieldConfig": {
+        "defaults": {
+          "unit": "currencyUSD",
+          "decimals": 4,
+          "thresholds": {
+            "mode": "absolute",
+            "steps": [{ "color": "blue", "value": null }]
+          }
+        },
+        "overrides": []
+      },
+      "options": {
+        "reduceOptions": { "calcs": ["lastNotNull"] },
+        "colorMode": "background",
+        "graphMode": "none"
+      }
+    },
+    {
+      "type": "stat",
+      "title": "Total Updates",
+      "datasource": { "uid": "oracle-pg", "type": "postgres" },
+      "gridPos": { "h": 4, "w": 5, "x": 5, "y": 1 },
+      "targets": [
+        {
+          "rawSql": "SELECT update_count AS \"Updates\" FROM discovered_assets WHERE encoded_asset_id = '$feed';",
+          "format": "table",
+          "refId": "A"
+        }
+      ],
+      "fieldConfig": {
+        "defaults": {
+          "thresholds": {
+            "mode": "absolute",
+            "steps": [{ "color": "blue", "value": null }]
+          }
+        },
+        "overrides": []
+      },
+      "options": {
+        "reduceOptions": { "calcs": ["lastNotNull"] },
+        "colorMode": "background",
+        "graphMode": "none"
+      }
+    },
+    {
+      "type": "stat",
+      "title": "Avg Latency",
+      "datasource": { "uid": "oracle-pg", "type": "postgres" },
+      "gridPos": { "h": 4, "w": 5, "x": 10, "y": 1 },
+      "targets": [
+        {
+          "rawSql": "SELECT ROUND(AVG(avg_delay_ms)) AS \"ms\"\nFROM hourly_metrics\nWHERE encoded_asset_id = '$feed'\n  AND avg_delay_ms IS NOT NULL;",
+          "format": "table",
+          "refId": "A"
+        }
+      ],
+      "fieldConfig": {
+        "defaults": {
+          "unit": "ms",
+          "thresholds": {
+            "mode": "absolute",
+            "steps": [
+              { "color": "green", "value": null },
+              { "color": "yellow", "value": 5000 },
+              { "color": "red", "value": 15000 }
+            ]
+          }
+        },
+        "overrides": []
+      },
+      "options": {
+        "reduceOptions": { "calcs": ["lastNotNull"] },
+        "colorMode": "background",
+        "graphMode": "none"
+      }
+    },
+    {
+      "type": "stat",
+      "title": "Time Since Last Update",
+      "description": "Seconds since last price update was indexed. Red indicates potential staleness.",
+      "datasource": { "uid": "oracle-pg", "type": "postgres" },
+      "gridPos": { "h": 4, "w": 5, "x": 15, "y": 1 },
+      "targets": [
+        {
+          "rawSql": "SELECT EXTRACT(EPOCH FROM NOW() - to_timestamp(MAX(block_timestamp)))::int AS \"Seconds\"\nFROM price_updates\nWHERE encoded_asset_id = '$feed';",
+          "format": "table",
+          "refId": "A"
+        }
+      ],
+      "fieldConfig": {
+        "defaults": {
+          "unit": "s",
+          "thresholds": {
+            "mode": "absolute",
+            "steps": [
+              { "color": "green", "value": null },
+              { "color": "yellow", "value": 300 },
+              { "color": "orange", "value": 900 },
+              { "color": "red", "value": 3600 }
+            ]
+          }
+        },
+        "overrides": []
+      },
+      "options": {
+        "reduceOptions": { "calcs": ["lastNotNull"] },
+        "colorMode": "background",
+        "graphMode": "none"
+      }
+    },
+    {
+      "type": "stat",
+      "title": "Issues",
+      "datasource": { "uid": "oracle-pg", "type": "postgres" },
+      "gridPos": { "h": 4, "w": 4, "x": 20, "y": 1 },
+      "targets": [
+        {
+          "rawSql": "SELECT COUNT(*) AS \"Issues\" FROM detected_issues WHERE encoded_asset_id = '$feed';",
+          "format": "table",
+          "refId": "A"
+        }
+      ],
+      "fieldConfig": {
+        "defaults": {
+          "thresholds": {
+            "mode": "absolute",
+            "steps": [
+              { "color": "green", "value": null },
+              { "color": "yellow", "value": 1 },
+              { "color": "red", "value": 50 }
+            ]
+          }
+        },
+        "overrides": []
+      },
+      "options": {
+        "reduceOptions": { "calcs": ["lastNotNull"] },
+        "colorMode": "background",
+        "graphMode": "none"
+      }
+    },
+
+    {
+      "type": "row",
+      "title": "Price",
+      "gridPos": { "h": 1, "w": 24, "x": 0, "y": 5 },
+      "collapsed": false
+    },
+    {
+      "type": "timeseries",
+      "title": "Price Over Time",
+      "description": "Raw oracle price for this feed. Flat regions indicate stale/unchanged prices.",
+      "datasource": { "uid": "oracle-pg", "type": "postgres" },
+      "gridPos": { "h": 10, "w": 24, "x": 0, "y": 6 },
+      "targets": [
+        {
+          "rawSql": "SELECT hour AS time, close_price::float8 AS \"Price\"\nFROM hourly_metrics\nWHERE encoded_asset_id = '$feed'\n  AND hour >= $__timeFrom()\n  AND hour < $__timeTo()\n  AND '$resolution' = 'hourly'\nUNION ALL\nSELECT minute AS time, close_price::float8 AS \"Price\"\nFROM rollup_minute_prices\nWHERE encoded_asset_id = '$feed'\n  AND minute >= $__timeFrom()\n  AND minute < $__timeTo()\n  AND '$resolution' = '1m'\nUNION ALL\nSELECT to_timestamp(block_timestamp) AS time, price::float8 AS \"Price\"\nFROM price_updates\nWHERE encoded_asset_id = '$feed'\n  AND block_timestamp >= EXTRACT(EPOCH FROM $__timeFrom()::timestamptz)::bigint\n  AND block_timestamp < EXTRACT(EPOCH FROM $__timeTo()::timestamptz)::bigint\n  AND '$resolution' = 'raw'\nORDER BY time",
+          "format": "table",
+          "refId": "A"
+        }
+      ],
+      "fieldConfig": {
+        "defaults": {
+          "unit": "currencyUSD",
+          "decimals": 4,
+          "custom": {
+            "lineWidth": 1,
+            "fillOpacity": 8,
+            "showPoints": "auto",
+            "pointSize": 2
+          },
+          "color": { "mode": "fixed", "fixedColor": "blue" }
+        },
+        "overrides": []
+      },
+      "options": {
+        "tooltip": { "mode": "single" },
+        "legend": { "displayMode": "list", "placement": "bottom" }
+      }
+    },
+
+    {
+      "type": "row",
+      "title": "Update Health",
+      "gridPos": { "h": 1, "w": 24, "x": 0, "y": 16 },
+      "collapsed": false
+    },
+    {
+      "type": "timeseries",
+      "title": "Update Latency (hourly)",
+      "description": "Hourly latency percentiles (ms) between publisher timestamp and block timestamp.",
+      "datasource": { "uid": "oracle-pg", "type": "postgres" },
+      "gridPos": { "h": 8, "w": 12, "x": 0, "y": 17 },
+      "targets": [
+        {
+          "rawSql": "SELECT\n  hour AS time,\n  p50_delay_ms AS \"P50\",\n  p95_delay_ms AS \"P95\",\n  p99_delay_ms AS \"P99\"\nFROM hourly_metrics\nWHERE encoded_asset_id = '$feed'\n  AND hour >= $__timeFrom()\n  AND hour < $__timeTo()\nORDER BY hour",
+          "format": "table",
+          "refId": "A"
+        }
+      ],
+      "fieldConfig": {
+        "defaults": {
+          "unit": "ms",
+          "custom": {
+            "lineWidth": 1,
+            "fillOpacity": 10,
+            "showPoints": "auto",
+            "pointSize": 2
+          }
+        },
+        "overrides": [
+          {
+            "matcher": { "id": "byName", "options": "P50" },
+            "properties": [{ "id": "color", "value": { "fixedColor": "green", "mode": "fixed" } }]
+          },
+          {
+            "matcher": { "id": "byName", "options": "P95" },
+            "properties": [{ "id": "color", "value": { "fixedColor": "yellow", "mode": "fixed" } }]
+          },
+          {
+            "matcher": { "id": "byName", "options": "P99" },
+            "properties": [{ "id": "color", "value": { "fixedColor": "red", "mode": "fixed" } }]
+          }
+        ]
+      },
+      "options": {
+        "tooltip": { "mode": "single" },
+        "legend": { "displayMode": "list", "placement": "bottom" }
+      }
+    },
+    {
+      "type": "timeseries",
+      "title": "Updates Per Hour",
+      "description": "Number of price updates received per hour. Low counts may indicate feed outages or missed updates.",
+      "datasource": { "uid": "oracle-pg", "type": "postgres" },
+      "gridPos": { "h": 8, "w": 12, "x": 12, "y": 17 },
+      "targets": [
+        {
+          "rawSql": "SELECT\n  hour AS time,\n  update_count AS \"Updates\"\nFROM hourly_metrics\nWHERE encoded_asset_id = '$feed'\n  AND hour >= $__timeFrom()\n  AND hour < $__timeTo()\nORDER BY hour",
+          "format": "table",
+          "refId": "A"
+        }
+      ],
+      "fieldConfig": {
+        "defaults": {
+          "custom": {
+            "lineWidth": 1,
+            "fillOpacity": 15,
+            "showPoints": "auto",
+            "pointSize": 3
+          },
+          "color": { "mode": "fixed", "fixedColor": "purple" }
+        },
+        "overrides": []
+      },
+      "options": {
+        "tooltip": { "mode": "single" },
+        "legend": { "displayMode": "list", "placement": "bottom" }
+      }
+    },
+
+    {
+      "type": "row",
+      "title": "Stale Price Detection",
+      "gridPos": { "h": 1, "w": 24, "x": 0, "y": 25 },
+      "collapsed": false
+    },
+    {
+      "type": "timeseries",
+      "title": "Flat Price Detection (hourly)",
+      "description": "Hours where price didn't change. High values indicate stale prices.",
+      "datasource": { "uid": "oracle-pg", "type": "postgres" },
+      "gridPos": { "h": 8, "w": 12, "x": 0, "y": 26 },
+      "targets": [
+        {
+          "rawSql": "SELECT\n  hour AS time,\n  CASE WHEN price_stddev = 0 OR price_stddev IS NULL THEN update_count ELSE 0 END AS \"Unchanged Hours\"\nFROM hourly_metrics\nWHERE encoded_asset_id = '$feed'\n  AND hour >= $__timeFrom()\n  AND hour < $__timeTo()\nORDER BY hour",
+          "format": "table",
+          "refId": "A"
+        }
+      ],
+      "fieldConfig": {
+        "defaults": {
+          "custom": {
+            "lineWidth": 1,
+            "fillOpacity": 20,
+            "showPoints": "auto",
+            "pointSize": 2,
+            "thresholdsStyle": {
+              "mode": "line+area"
+            }
+          },
+          "color": { "mode": "fixed", "fixedColor": "blue" },
+          "thresholds": {
+            "mode": "absolute",
+            "steps": [
+              { "color": "transparent", "value": null },
+              { "color": "red", "value": 50 }
+            ]
+          }
+        },
+        "overrides": []
+      },
+      "options": {
+        "tooltip": { "mode": "single" },
+        "legend": { "displayMode": "list", "placement": "bottom" }
+      }
+    },
+    {
+      "type": "timeseries",
+      "title": "Hourly Price Volatility",
+      "description": "Standard deviation of price within each hour. Higher values indicate more price movement.",
+      "datasource": { "uid": "oracle-pg", "type": "postgres" },
+      "gridPos": { "h": 8, "w": 12, "x": 12, "y": 26 },
+      "targets": [
+        {
+          "rawSql": "SELECT\n  hour AS time,\n  price_stddev::float8 AS \"Price Stddev\"\nFROM hourly_metrics\nWHERE encoded_asset_id = '$feed'\n  AND hour >= $__timeFrom()\n  AND hour < $__timeTo()\nORDER BY hour",
+          "format": "table",
+          "refId": "A"
+        }
+      ],
+      "fieldConfig": {
+        "defaults": {
+          "custom": {
+            "lineWidth": 1,
+            "fillOpacity": 10,
+            "showPoints": "auto",
+            "pointSize": 2
+          },
+          "color": { "mode": "fixed", "fixedColor": "green" }
+        },
+        "overrides": []
+      },
+      "options": {
+        "tooltip": { "mode": "single" },
+        "legend": { "displayMode": "list", "placement": "bottom" }
+      }
+    },
+
+    {
+      "type": "row",
+      "title": "Issues for This Feed",
+      "gridPos": { "h": 1, "w": 24, "x": 0, "y": 34 },
+      "collapsed": false
+    },
+    {
+      "type": "table",
+      "title": "Detected Issues",
+      "datasource": { "uid": "oracle-pg", "type": "postgres" },
+      "gridPos": { "h": 8, "w": 16, "x": 0, "y": 35 },
+      "targets": [
+        {
+          "rawSql": "SELECT\n  to_timestamp(bt.block_timestamp) AS \"Block Time\",\n  di.issue_type AS \"Type\",\n  di.severity AS \"Severity\",\n  di.block_number AS \"Block\",\n  di.details::text AS \"Details\"\nFROM detected_issues di\nCROSS JOIN LATERAL (\n  SELECT block_timestamp\n  FROM price_updates\n  WHERE block_number = di.block_number\n  LIMIT 1\n) bt\nWHERE di.encoded_asset_id = '$feed'\nORDER BY bt.block_timestamp DESC\nLIMIT 100;",
+          "format": "table",
+          "refId": "A"
+        }
+      ],
+      "fieldConfig": {
+        "defaults": {},
+        "overrides": [
+          {
+            "matcher": { "id": "byName", "options": "Severity" },
+            "properties": [
+              {
+                "id": "custom.cellOptions",
+                "value": { "type": "color-background", "mode": "basic" }
+              },
+              {
+                "id": "mappings",
+                "value": [
+                  { "type": "value", "options": { "critical": { "color": "red" } } },
+                  { "type": "value", "options": { "warning": { "color": "yellow" } } }
+                ]
+              }
+            ]
+          },
+          {
+            "matcher": { "id": "byName", "options": "Type" },
+            "properties": [
+              {
+                "id": "custom.cellOptions",
+                "value": { "type": "color-text" }
+              },
+              {
+                "id": "mappings",
+                "value": [
+                  { "type": "value", "options": { "high_latency": { "color": "orange" } } },
+                  { "type": "value", "options": { "stale_price": { "color": "red" } } },
+                  { "type": "value", "options": { "gap": { "color": "purple" } } },
+                  { "type": "value", "options": { "price_jump": { "color": "yellow" } } }
+                ]
+              }
+            ]
+          }
+        ]
+      },
+      "options": {
+        "showHeader": true,
+        "sortBy": [{ "displayName": "Block Time", "desc": true }],
+        "footer": { "show": false }
+      }
+    },
+    {
+      "type": "piechart",
+      "title": "Issue Breakdown",
+      "datasource": { "uid": "oracle-pg", "type": "postgres" },
+      "gridPos": { "h": 8, "w": 8, "x": 16, "y": 35 },
+      "targets": [
+        {
+          "rawSql": "SELECT issue_type AS \"Type\", COUNT(*) AS \"Count\"\nFROM detected_issues\nWHERE encoded_asset_id = '$feed'\nGROUP BY issue_type;",
+          "format": "table",
+          "refId": "A"
+        }
+      ],
+      "fieldConfig": {
+        "defaults": {},
+        "overrides": [
+          {
+            "matcher": { "id": "byName", "options": "high_latency" },
+            "properties": [{ "id": "color", "value": { "fixedColor": "orange", "mode": "fixed" } }]
+          },
+          {
+            "matcher": { "id": "byName", "options": "stale_price" },
+            "properties": [{ "id": "color", "value": { "fixedColor": "red", "mode": "fixed" } }]
+          },
+          {
+            "matcher": { "id": "byName", "options": "gap" },
+            "properties": [{ "id": "color", "value": { "fixedColor": "purple", "mode": "fixed" } }]
+          },
+          {
+            "matcher": { "id": "byName", "options": "price_jump" },
+            "properties": [{ "id": "color", "value": { "fixedColor": "yellow", "mode": "fixed" } }]
+          }
+        ]
+      },
+      "options": {
+        "reduceOptions": { "calcs": ["sum"] },
+        "legend": { "displayMode": "list", "placement": "right" },
+        "pieType": "donut"
+      }
+    }
+  ]
+}

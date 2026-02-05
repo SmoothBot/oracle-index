@@ -1,0 +1,21 @@
+{
+  "name": "@oracle-index/indexer",
+  "version": "0.0.1",
+  "private": true,
+  "type": "module",
+  "scripts": {
+    "build": "tsc",
+    "dev": "tsx --env-file=../../.env --watch src/index.ts",
+    "start": "node --env-file=.env dist/index.js",
+    "migrate": "tsx --env-file=../../.env src/migrate.ts"
+  },
+  "dependencies": {
+    "@oracle-index/shared": "workspace:*",
+    "pg": "^8.13.0",
+    "pino": "^9.0.0",
+    "viem": "^2.21.0"
+  },
+  "devDependencies": {
+    "@types/pg": "^8.11.0"
+  }
+}
